@@ -1,0 +1,41 @@
+[Part I]
+primal_step = 0.00825381
+dual_step = 0.03600000
+admm_rho = 1.00
+DGD final gap = 3.281883e-02
+GT final gap = 4.820063e-05
+Dual decomposition final gap = 1.466966e-05
+ADMM final gap = 9.204251e-15
+Directed DGD final gap = 3.900663e-02
+Packet-loss DGD final gap = 4.800606e-02
+Asynchronous DGD final gap = 5.061613e-02
+Scaling final gaps:
+n = 100: DGD = 3.430387e-02, GT = 6.045900e-03
+n = 400: DGD = 1.665881e-01, GT = 1.657649e-01
+n = 1600: DGD = 9.049209e-01, GT = 9.049288e-01
+n = 6400: DGD = 3.272303e+00, GT = 3.272241e+00
+
+[Part II]
+Constant learning rate 0.002, full batch B=20, full participation C=5:
+E = 1: final objective error = 8.896539e-10
+E = 5: final objective error = 4.676250e-10
+E = 50: final objective error = 5.566466e-08
+Diminishing learning rate 0.002/(1+0.01 k), B=20, C=5:
+E = 1: final objective error = 7.366609e-04
+E = 5: final objective error = 6.036530e-07
+E = 50: final objective error = 7.779489e-11
+Constant learning rate 0.002, mini-batch B=15, C=5:
+E = 1: final objective error = 8.748459e-06
+E = 5: final objective error = 1.985853e-06
+E = 50: final objective error = 6.045034e-08
+Constant learning rate 0.002, mini-batch B=15, partial participation C=3:
+E = 1: final objective error = 1.196624e-05
+E = 5: final objective error = 2.708243e-06
+E = 50: final objective error = 2.278004e-04
+
+[Part III]
+Schedules: alpha_k = 0.002/(1+0.001k), gamma_k = 1/(1+0.001k)^0.9, nu_k = (0.01/epsilon)/(1+0.001k)^0.1
+DGD (no noise) final gap = 2.818693e-01
+epsilon = 0.1 final gap = 1.089560e+01
+epsilon = 1 final gap = 2.825803e+00
+epsilon = 10 final gap = 1.067493e+00
