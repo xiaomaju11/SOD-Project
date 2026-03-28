@@ -22,6 +22,7 @@ from project_kernel_common import (
     edge_map,
     finalize_run,
     global_objective,
+    graph_laplacian,
     incidence_matrix,
     initialize_run_history,
     lazy_metropolis_weights,
@@ -119,6 +120,10 @@ def run_admm(
 ) -> RunResult:
     mapping = edge_map(edges, problem.num_agents)
     identity = np.eye(problem.dim)
+    systems = [
+        problem.local_hessians[agent_id] + rho * len(mapping[agent_id]) * identity
+        for agent_id in range(problem.num_agents)
+    ]
     alphas = np.zeros((problem.num_agents, problem.dim), dtype=float)
     edge_variables = np.zeros((len(edges), problem.dim), dtype=float)
     scaled_duals = np.zeros((len(edges), 2, problem.dim), dtype=float)
@@ -127,11 +132,10 @@ def run_admm(
     for _ in range(num_iters):
         updated_alphas = np.zeros_like(alphas)
         for agent_id in range(problem.num_agents):
-            system = problem.local_hessians[agent_id] + rho * len(mapping[agent_id]) * identity
             rhs = problem.local_linear_terms[agent_id].copy()
             for edge_id, slot in mapping[agent_id]:
                 rhs += rho * (edge_variables[edge_id] - scaled_duals[edge_id, slot])
-            updated_alphas[agent_id] = np.linalg.solve(system, rhs)
+            updated_alphas[agent_id] = np.linalg.solve(systems[agent_id], rhs)
 
         updated_edge_variables = np.zeros_like(edge_variables)
         for edge_id, (left, right) in enumerate(edges):
@@ -148,6 +152,51 @@ def run_admm(
 
         alphas = updated_alphas
         edge_variables = updated_edge_variables
+        append_run_history(history, problem, alphas)
+
+    return finalize_run(problem, alphas, history)
+
+
+def compute_mspd_steps(gossip_matrix: np.ndarray, primal_prox: float = 0.5) -> tuple[float, float]:
+    spectral_radius = float(np.linalg.eigvalsh(gossip_matrix).max())
+    dual_step = 0.99 / max(primal_prox * spectral_radius, 1e-12)
+    return primal_prox, dual_step
+
+
+def run_mspd(
+    problem: ConsensusProblem,
+    gossip_matrix: np.ndarray,
+    primal_prox: float,
+    dual_step: float,
+    num_iters: int,
+) -> RunResult:
+    # The MSPD inner proximal problem is quadratic for kernel ridge regression,
+    # so we solve it exactly instead of approximating it with inner subgradient steps.
+    identity = np.eye(problem.dim)
+    proximal_systems = [
+        (identity / primal_prox) + (problem.local_hessians[agent_id] / problem.num_agents)
+        for agent_id in range(problem.num_agents)
+    ]
+
+    alphas = np.zeros((problem.num_agents, problem.dim), dtype=float)
+    previous_alphas = alphas.copy()
+    dual_trackers = np.zeros_like(alphas)
+    history = initialize_run_history(problem, alphas)
+
+    for _ in range(num_iters):
+        extrapolated = 2.0 * alphas - previous_alphas
+        dual_trackers = dual_trackers - dual_step * (gossip_matrix @ extrapolated)
+
+        updated_alphas = np.zeros_like(alphas)
+        for agent_id in range(problem.num_agents):
+            rhs = (
+                alphas[agent_id] / primal_prox
+                + problem.local_linear_terms[agent_id] / problem.num_agents
+                + dual_trackers[agent_id]
+            )
+            updated_alphas[agent_id] = np.linalg.solve(proximal_systems[agent_id], rhs)
+
+        previous_alphas, alphas = alphas, updated_alphas
         append_run_history(history, problem, alphas)
 
     return finalize_run(problem, alphas, history)
@@ -278,6 +327,7 @@ def plot_part1_fits(problem: ConsensusProblem, curves: list[tuple[np.ndarray, st
         ("#dc2626", "-.", 2.2),
         ("#059669", ":", 2.4),
         ("#7c3aed", (0, (5, 1, 1, 1)), 2.2),
+        ("#0891b2", (0, (3, 1, 1, 1, 1, 1)), 2.2),
     ]
     predictions = {}
 
@@ -349,13 +399,16 @@ def generate_part1_results() -> dict[str, object]:
     edges_complete = build_edges("complete", problem.num_agents)
     weights_complete = lazy_metropolis_weights(edges_complete, problem.num_agents)
     incidence_complete = incidence_matrix(edges_complete, problem.num_agents)
+    laplacian_complete = graph_laplacian(edges_complete, problem.num_agents)
     dual_step = compute_dual_step(problem, incidence_complete)
+    mspd_primal_prox, mspd_dual_step = compute_mspd_steps(laplacian_complete)
     rho = 1.0
 
     dgd_complete = run_dgd(problem, weights_complete, primal_step, PART1_ITERS)
     gt_complete = run_gradient_tracking(problem, weights_complete, primal_step, PART1_ITERS)
     dual_complete = run_dual_decomposition(problem, incidence_complete, dual_step, PART1_ITERS)
     admm_complete = run_admm(problem, edges_complete, rho, PART1_ITERS)
+    mspd_complete = run_mspd(problem, laplacian_complete, mspd_primal_prox, mspd_dual_step, PART1_ITERS)
 
     topology_results_dgd = {}
     topology_results_gt = {}
@@ -407,16 +460,23 @@ def generate_part1_results() -> dict[str, object]:
             (gt_complete.gaps, "Gradient tracking", "--"),
             (dual_complete.gaps, "Dual decomposition", "-."),
             (admm_complete.gaps, "ADMM (rho=1)", ":"),
+            (mspd_complete.gaps, "MSPD", (0, (3, 1, 1, 1, 1, 1))),
         ],
         RESULTS_DIR / "part1_all_algorithms.pdf",
         ylabel="Average optimality gap",
-        title="Part I: all required algorithms",
+        title="Part I: required algorithms plus MSPD",
     )
     plot_gap_curves(
         [(dual_complete.gaps, "Dual decomposition", "--"), (admm_complete.gaps, "ADMM (rho=1)", "-")],
         RESULTS_DIR / "admm_vs_dual_decomposition.pdf",
         ylabel="Average optimality gap",
         title="Part I: ADMM versus Dual Decomposition",
+    )
+    plot_gap_curves(
+        [(admm_complete.gaps, "ADMM (rho=1)", "-"), (mspd_complete.gaps, "MSPD", "--")],
+        RESULTS_DIR / "admm_vs_mspd.pdf",
+        ylabel="Average optimality gap",
+        title="Part I: ADMM versus MSPD",
     )
     plot_topologies(topology_results_dgd, topology_results_gt, RESULTS_DIR / "graph_topology_comparison.pdf")
     plot_part1_fits(
@@ -427,6 +487,7 @@ def generate_part1_results() -> dict[str, object]:
             (gt_complete.mean_alpha, "Gradient tracking"),
             (dual_complete.mean_alpha, "Dual decomposition"),
             (admm_complete.mean_alpha, "ADMM"),
+            (mspd_complete.mean_alpha, "MSPD"),
         ],
         RESULTS_DIR / "fitted_functions.pdf",
     )
@@ -438,10 +499,13 @@ def generate_part1_results() -> dict[str, object]:
         f"primal_step = {primal_step:.8f}",
         f"dual_step = {dual_step:.8f}",
         f"admm_rho = {rho:.2f}",
+        f"mspd_primal_prox = {mspd_primal_prox:.6f}",
+        f"mspd_dual_step = {mspd_dual_step:.6f}",
         f"DGD final gap = {dgd_complete.gaps[-1]:.6e}",
         f"GT final gap = {gt_complete.gaps[-1]:.6e}",
         f"Dual decomposition final gap = {dual_complete.gaps[-1]:.6e}",
         f"ADMM final gap = {admm_complete.gaps[-1]:.6e}",
+        f"MSPD final gap = {mspd_complete.gaps[-1]:.6e}",
         f"Directed DGD final gap = {directed.gaps[-1]:.6e}",
         f"Packet-loss DGD final gap = {packet_loss.gaps[-1]:.6e}",
         f"Asynchronous DGD final gap = {asynchronous.gaps[-1]:.6e}",
@@ -464,5 +528,6 @@ def generate_part1_results() -> dict[str, object]:
             "gt": gt_complete,
             "dual": dual_complete,
             "admm": admm_complete,
+            "mspd": mspd_complete,
         },
     }

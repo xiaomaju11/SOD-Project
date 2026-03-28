@@ -23,6 +23,15 @@ def laplace_noise(shape: tuple[int, ...], variance: float, rng: np.random.Genera
     return rng.laplace(loc=0.0, scale=scale, size=shape)
 
 
+def dp_schedule(iteration: int, epsilon: float | None) -> tuple[float, float, float | None]:
+    alpha_k = 0.002 / (1.0 + 0.001 * iteration)
+    gamma_k = 1.0 / (1.0 + 0.001 * iteration) ** 0.9
+    if epsilon is None:
+        return alpha_k, gamma_k, None
+    variance = (0.01 / epsilon) / (1.0 + 0.001 * iteration) ** 0.1
+    return alpha_k, gamma_k, variance
+
+
 def run_dgd_dp(
     problem: ConsensusProblem,
     weights: np.ndarray,
@@ -35,12 +44,10 @@ def run_dgd_dp(
     rng = np.random.default_rng(seed)
 
     for iteration in range(num_iters):
-        alpha_k = 0.002 / (1.0 + 0.001 * iteration)
-        gamma_k = 1.0 / (1.0 + 0.001 * iteration) ** 0.9
-        if epsilon is None:
+        alpha_k, gamma_k, variance = dp_schedule(iteration, epsilon)
+        if variance is None:
             noisy_state = alphas
         else:
-            variance = (0.01 / epsilon) / (1.0 + 0.001 * iteration) ** 0.1
             noisy_state = alphas + laplace_noise(alphas.shape, variance, rng)
 
         alphas = (

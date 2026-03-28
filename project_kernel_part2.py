@@ -4,9 +4,12 @@ import numpy as np
 
 from project_kernel_common import (
     BASE_M,
+    FIT_GRID_SIZE,
+    NU,
     PART2_ROUNDS,
     RESULTS_DIR,
     SEED,
+    SIGMA,
     FedAvgResult,
     FederatedProblem,
     build_federated_problem,
@@ -25,8 +28,8 @@ def federated_gradient(
     features = problem.client_features[client_id][batch_indices]
     targets = problem.client_targets[client_id][batch_indices]
     return (
-        (0.5**2) * (problem.kernel_mm @ alpha)
-        + 1.0 * alpha
+        (SIGMA**2) * (problem.kernel_mm @ alpha)
+        + NU * alpha
         + (features.T @ (features @ alpha - targets)) / batch_indices.size
     )
 
@@ -112,7 +115,7 @@ def plot_federated_fit(problem: FederatedProblem, alpha: np.ndarray, filename) -
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(7.6, 4.8))
-    x_grid = np.linspace(-1.0, 1.0, 250)
+    x_grid = np.linspace(-1.0, 1.0, FIT_GRID_SIZE)
     ax.scatter(problem.all_x, problem.all_y, s=18, alpha=0.35, color="#4b5563", label="data")
     ax.scatter(
         problem.x_centers,

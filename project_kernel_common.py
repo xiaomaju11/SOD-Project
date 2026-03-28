@@ -279,6 +279,11 @@ def incidence_matrix(edges: list[tuple[int, int]], num_agents: int) -> np.ndarra
     return matrix
 
 
+def graph_laplacian(edges: list[tuple[int, int]], num_agents: int) -> np.ndarray:
+    incidence = incidence_matrix(edges, num_agents)
+    return incidence.T @ incidence
+
+
 def edge_map(edges: list[tuple[int, int]], num_agents: int) -> list[list[tuple[int, int]]]:
     mapping: list[list[tuple[int, int]]] = [[] for _ in range(num_agents)]
     for edge_id, (left, right) in enumerate(edges):
@@ -370,7 +375,7 @@ def predict_federated(problem: FederatedProblem, alpha: np.ndarray, x_grid: np.n
 
 
 def plot_gap_curves(
-    curves: list[tuple[np.ndarray, str, str]],
+    curves: list[tuple[np.ndarray, str, object]],
     filename: Path,
     ylabel: str,
     title: str,
@@ -378,7 +383,10 @@ def plot_gap_curves(
     fig, ax = plt.subplots()
     iterations = np.arange(1, len(curves[0][0]) + 1)
     for values, label, style in curves:
-        ax.loglog(iterations, np.maximum(values, 1e-14), style, label=label)
+        if isinstance(style, str):
+            ax.loglog(iterations, np.maximum(values, 1e-14), style, label=label)
+        else:
+            ax.loglog(iterations, np.maximum(values, 1e-14), linestyle=style, label=label)
     ax.set_xlabel("Iteration")
     ax.set_ylabel(ylabel)
     ax.set_title(title)
