@@ -30,3 +30,5 @@ def generate_all_results() -> dict[str, object]:
         "summary_file": summary_file,
         "pdf_files": sorted(path.name for path in RESULTS_DIR.glob("*.pdf")),
     }
+
+generate_all_results()
